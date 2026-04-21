@@ -1,0 +1,55 @@
+# Full stack — three containers on one docker network.
+#
+#   web   (this repo)             — React SPA behind nginx, reverse-proxies
+#                                    /api/* → mcp:8765 and Foundry asset
+#                                    prefixes → foundry:30000.
+#   mcp   (foundry-mcp)           — Node MCP server + Fastify REST surface
+#                                    at /api/*. Opens a WS to foundry.
+#   foundry (foundry-api-bridge)  — Foundry VTT + bridge module baked in
+#                                    (layered on felddy/foundryvtt).
+#
+# Browsers only hit `web`. The mcp and foundry ports are kept off the host
+# by default; expose them below if you want direct access (e.g. the Foundry
+# game client UI, or an external MCP client).
+#
+# If you already run Foundry elsewhere, delete the `foundry` service and
+# point mcp's FOUNDRY_WS_URL + web's FOUNDRY_UPSTREAM at your existing host.
+
+services:
+  foundry:
+    image: ghcr.io/alexdickerson/foundry-api-bridge:latest
+    container_name: foundry
+    # ports:
+    #   - '30000:30000'
+    volumes:
+      - ${FOUNDRY_DATA:-./foundrydata}:/data
+    environment:
+      - FOUNDRY_USERNAME=${FOUNDRY_USERNAME}
+      - FOUNDRY_PASSWORD=${FOUNDRY_PASSWORD}
+    restart: unless-stopped
+
+  mcp:
+    image: ghcr.io/alexdickerson/foundry-mcp:latest
+    container_name: foundry-mcp
+    depends_on:
+      - foundry
+    # ports:
+    #   - '8765:8765'
+    environment:
+      - FOUNDRY_WS_URL=ws://foundry:30000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/alexdickerson/foundry-character-creator:latest
+    container_name: foundry-character-creator
+    depends_on:
+      - mcp
+      - foundry
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    environment:
+      - MCP_UPSTREAM=mcp:8765
+      - FOUNDRY_UPSTREAM=foundry:30000
+      - SERVER_PORT=8080
+    restart: unless-stopped

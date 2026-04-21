@@ -1,0 +1,62 @@
+name: Deploy
+
+# Deploys the `web` service of the full stack on a Hetzner VM (or any SSH
+# host running docker compose). Fires after the Docker workflow finishes
+# successfully on main, or manually via the Actions tab.
+#
+# Required secrets:
+#   DEPLOY_HOST       — host or IP of the Hetzner box
+#   DEPLOY_USER       — SSH user (typically `root` or a deploy user in the
+#                       docker group)
+#   DEPLOY_SSH_KEY    — private key; add the matching public key to the
+#                       host's ~/.ssh/authorized_keys
+#
+# Optional:
+#   DEPLOY_PORT       — SSH port (default 22)
+#
+# Required variables (Settings → Variables):
+#   DEPLOY_DIR        — path on host where docker-compose.yml lives
+#                       (default /opt/foundry-stack)
+#
+# One-time host setup: run scripts/bootstrap-host.sh on the target box.
+
+on:
+  workflow_run:
+    workflows: [Docker]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # Only deploy when the upstream build actually succeeded (workflow_run
+    # fires on both success and failure).
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-hetzner
+      cancel-in-progress: false
+
+    steps:
+      - name: Pull and restart on host
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/foundry-stack' }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          envs: DEPLOY_DIR
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${DEPLOY_DIR}"
+            # Pull only the service this repo owns; sibling repos (foundry-mcp,
+            # foundry-api-bridge) each deploy their own service the same way.
+            docker compose pull web
+            docker compose up -d web
+            # Drop the old image layer once the new one is live.
+            docker image prune -f

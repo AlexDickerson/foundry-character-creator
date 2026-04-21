@@ -1,0 +1,79 @@
+# Rendered at container start by the nginx:alpine stock entrypoint
+# (/docker-entrypoint.d/20-envsubst-on-templates.sh) from
+# /etc/nginx/templates/nginx.conf.template → /etc/nginx/conf.d/nginx.conf.
+#
+# Variables: $MCP_UPSTREAM, $FOUNDRY_UPSTREAM, $SERVER_PORT.
+#
+# We ship only server + upstream blocks here and inherit the stock http {}
+# wrapper from the base image's /etc/nginx/nginx.conf.
+
+# MCP bridge REST surface (Fastify) — /api/* lives here.
+upstream mcp_upstream {
+  server ${MCP_UPSTREAM};
+  keepalive 16;
+}
+
+# Foundry VTT — serves /icons, /systems, /modules, /worlds, /assets straight
+# off its static tree.
+upstream foundry_upstream {
+  server ${FOUNDRY_UPSTREAM};
+  keepalive 16;
+}
+
+server {
+  listen      ${SERVER_PORT} default_server;
+  server_name _;
+  root        /usr/share/nginx/html;
+  index       index.html;
+
+  # Foundry payloads (actor dumps, compendium pass-through) can be chunky.
+  client_max_body_size 25m;
+
+  # Shared proxy hygiene — applies to every proxy_pass below unless a
+  # location overrides it.
+  proxy_http_version 1.1;
+  proxy_set_header   Host              $host;
+  proxy_set_header   X-Real-IP         $remote_addr;
+  proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+  proxy_set_header   X-Forwarded-Proto $scheme;
+  proxy_set_header   Connection        "";
+  proxy_read_timeout 300s;
+
+  # Cache the Vite-emitted bundle (content-hashed filenames) hard. This
+  # prefix also exists in Foundry's static tree (/assets/...), so anything
+  # not found locally falls through to the Foundry upstream via the named
+  # location below. nginx picks the most specific prefix match, so our
+  # /assets/ wins over the generic SPA fallback.
+  location /assets/ {
+    try_files $uri @foundry_assets;
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+
+  location @foundry_assets {
+    proxy_pass http://foundry_upstream;
+  }
+
+  # SPA → MCP bridge.
+  location /api/ {
+    proxy_pass http://mcp_upstream;
+  }
+
+  # Foundry static asset prefixes — pass through untouched.
+  location /icons/   { proxy_pass http://foundry_upstream; }
+  location /systems/ { proxy_pass http://foundry_upstream; }
+  location /modules/ { proxy_pass http://foundry_upstream; }
+  location /worlds/  { proxy_pass http://foundry_upstream; }
+
+  # Liveness / readiness probe.
+  location = /healthz {
+    access_log off;
+    add_header Content-Type text/plain;
+    return 200 "ok\n";
+  }
+
+  # SPA fallback — unmatched paths boot the React app.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

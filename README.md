@@ -45,6 +45,21 @@ npm run dev:mock                 # serves src/fixtures/*-prepared.json inline
 - `npm run typecheck`
 - `npm run test` / `test:watch` — Vitest
 
+## Production
+
+The [Dockerfile](Dockerfile) produces a small nginx image that serves the built SPA and reverse-proxies `/api/*` → the MCP server and Foundry asset prefixes → Foundry. Pushes to `main` publish `ghcr.io/alexdickerson/foundry-character-creator:latest` via [.github/workflows/docker.yml](.github/workflows/docker.yml); each PR validates the build with a `/healthz` + index smoke test.
+
+Deployment target is a single Hetzner Cloud VM running `docker compose` — the stack config lives in [docker-compose.yml](docker-compose.yml) and pulls all three containers (`web`, `mcp`, `foundry`) from GHCR.
+
+```bash
+# On a fresh Ubuntu VM — one-time setup
+curl -fsSL https://raw.githubusercontent.com/AlexDickerson/foundry-character-creator/main/scripts/bootstrap-host.sh | sudo bash
+# then edit /opt/foundry-stack/.env (Foundry creds, OpenAI key) and:
+cd /opt/foundry-stack && docker compose up -d
+```
+
+GitHub secrets for [.github/workflows/deploy.yml](.github/workflows/deploy.yml): `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (optionally `DEPLOY_PORT`). The deploy job fires after each successful push build and restarts only the `web` service — sibling repos own their own services.
+
 ## Attribution
 
 Derived files (PF2e SCSS, `en.json` i18n) are Apache-2.0 licensed upstream. See [NOTICE](NOTICE) for specifics.

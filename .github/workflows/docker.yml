@@ -1,0 +1,103 @@
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
+            type=raw,value=${{ steps.version.outputs.VERSION }},enable=${{ github.event_name == 'push' }}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build image (local)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — container serves /healthz
+        run: |
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker run -d --name smoke -p 8080:8080 "$IMAGE"
+          # Wait for nginx to come up (envsubst + start is fast; 10s is plenty).
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
+              echo "healthz OK"
+              break
+            fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          # Index.html must be served by the SPA fallback.
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"' || {
+            echo "index.html missing #root"; docker logs smoke; exit 1;
+          }
+          docker rm -f smoke
+
+      - name: Grype vulnerability scan
+        uses: anchore/scan-action@v7
+        id: grype
+        continue-on-error: true
+        with:
+          image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          fail-build: false
+          severity-cutoff: high
+          only-fixed: true
+          output-format: sarif
+
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+
+      - name: Push image
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
