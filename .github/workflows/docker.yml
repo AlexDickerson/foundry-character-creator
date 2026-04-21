@@ -58,20 +58,19 @@ jobs:
         run: |
           IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
           docker run -d --name smoke -p 8080:8080 "$IMAGE"
-          # Wait for nginx to come up (envsubst + start is fast; 10s is plenty).
-          for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
-              echo "healthz OK"
+          # Always dump logs + rm at the end, even on failure.
+          trap 'echo "--- container logs ---"; docker logs smoke || true; echo "--- container state ---"; docker inspect -f "status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}" smoke || true; docker rm -f smoke || true' EXIT
+          # Wait up to ~15s for nginx to come up.
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "healthz OK after ${i} tries"
               break
             fi
             sleep 0.5
           done
           curl -fsS http://127.0.0.1:8080/healthz
           # Index.html must be served by the SPA fallback.
-          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"' || {
-            echo "index.html missing #root"; docker logs smoke; exit 1;
-          }
-          docker rm -f smoke
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
 
       - name: Grype vulnerability scan
         uses: anchore/scan-action@v7

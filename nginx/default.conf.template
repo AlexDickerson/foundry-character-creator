@@ -1,24 +1,23 @@
 # Rendered at container start by the nginx:alpine stock entrypoint
-# (/docker-entrypoint.d/20-envsubst-on-templates.sh) from
-# /etc/nginx/templates/nginx.conf.template → /etc/nginx/conf.d/nginx.conf.
+# (/docker-entrypoint.d/20-envsubst-on-templates.sh): this file lives at
+# /etc/nginx/templates/default.conf.template and renders to
+# /etc/nginx/conf.d/default.conf, overwriting the base image's default.
 #
-# Variables: $MCP_UPSTREAM, $FOUNDRY_UPSTREAM, $SERVER_PORT.
+# Substituted vars: MCP_UPSTREAM, FOUNDRY_UPSTREAM, SERVER_PORT
+# (see NGINX_ENVSUBST_FILTER in the Dockerfile — nothing else is replaced).
 #
-# We ship only server + upstream blocks here and inherit the stock http {}
-# wrapper from the base image's /etc/nginx/nginx.conf.
-
-# MCP bridge REST surface (Fastify) — /api/* lives here.
-upstream mcp_upstream {
-  server ${MCP_UPSTREAM};
-  keepalive 16;
-}
-
-# Foundry VTT — serves /icons, /systems, /modules, /worlds, /assets straight
-# off its static tree.
-upstream foundry_upstream {
-  server ${FOUNDRY_UPSTREAM};
-  keepalive 16;
-}
+# We ship only server blocks here and inherit the stock http {} wrapper
+# from the base image's /etc/nginx/nginx.conf.
+#
+# DNS: docker's embedded DNS sits at 127.0.0.11 inside a compose network.
+# Using `resolver` + variable-based proxy_pass defers hostname resolution
+# to request time, so the container starts even when upstream services
+# aren't up yet (or when running the image outside a compose network —
+# /healthz keeps working, /api just returns 502 until the upstream is
+# reachable). Without this, nginx would fail at config load with
+# "host not found in upstream".
+resolver 127.0.0.11 ipv6=off valid=30s;
+resolver_timeout 5s;
 
 server {
   listen      ${SERVER_PORT} default_server;
@@ -29,8 +28,7 @@ server {
   # Foundry payloads (actor dumps, compendium pass-through) can be chunky.
   client_max_body_size 25m;
 
-  # Shared proxy hygiene — applies to every proxy_pass below unless a
-  # location overrides it.
+  # Shared proxy hygiene.
   proxy_http_version 1.1;
   proxy_set_header   Host              $host;
   proxy_set_header   X-Real-IP         $remote_addr;
@@ -39,11 +37,16 @@ server {
   proxy_set_header   Connection        "";
   proxy_read_timeout 300s;
 
+  # Upstream targets captured into nginx variables; envsubst fills these
+  # from the container env on start. Variables (rather than `upstream`
+  # blocks) are required for lazy DNS — see the comment on `resolver`.
+  set $mcp_upstream     "${MCP_UPSTREAM}";
+  set $foundry_upstream "${FOUNDRY_UPSTREAM}";
+
   # Cache the Vite-emitted bundle (content-hashed filenames) hard. This
   # prefix also exists in Foundry's static tree (/assets/...), so anything
   # not found locally falls through to the Foundry upstream via the named
-  # location below. nginx picks the most specific prefix match, so our
-  # /assets/ wins over the generic SPA fallback.
+  # location below.
   location /assets/ {
     try_files $uri @foundry_assets;
     expires 1y;
@@ -51,19 +54,19 @@ server {
   }
 
   location @foundry_assets {
-    proxy_pass http://foundry_upstream;
+    proxy_pass http://$foundry_upstream$request_uri;
   }
 
   # SPA → MCP bridge.
   location /api/ {
-    proxy_pass http://mcp_upstream;
+    proxy_pass http://$mcp_upstream$request_uri;
   }
 
   # Foundry static asset prefixes — pass through untouched.
-  location /icons/   { proxy_pass http://foundry_upstream; }
-  location /systems/ { proxy_pass http://foundry_upstream; }
-  location /modules/ { proxy_pass http://foundry_upstream; }
-  location /worlds/  { proxy_pass http://foundry_upstream; }
+  location /icons/   { proxy_pass http://$foundry_upstream$request_uri; }
+  location /systems/ { proxy_pass http://$foundry_upstream$request_uri; }
+  location /modules/ { proxy_pass http://$foundry_upstream$request_uri; }
+  location /worlds/  { proxy_pass http://$foundry_upstream$request_uri; }
 
   # Liveness / readiness probe.
   location = /healthz {
