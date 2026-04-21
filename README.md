@@ -45,6 +45,14 @@ npm run dev:mock                 # serves src/fixtures/*-prepared.json inline
 - `npm run typecheck`
 - `npm run test` / `test:watch` — Vitest
 
+## Production image
+
+The repo publishes `ghcr.io/alexdickerson/foundry-character-creator:latest` (also tagged with the `package.json` version and `sha-<short>`) via `.github/workflows/docker.yml`. It is a multi-stage build — `node:20-alpine` produces the Vite `dist/`, which is baked into `nginx:alpine` at `/usr/share/nginx/html/`.
+
+Its primary role is as a **static bundle image** consumed by [foundry-mcp](https://github.com/AlexDickerson/foundry-mcp) — that repo's Dockerfile pulls the built SPA via `COPY --from=ghcr.io/alexdickerson/foundry-character-creator:latest /usr/share/nginx/html/ ...` and serves it alongside the REST / MCP / WebSocket API from a single Fastify process in one container on Fly.io.
+
+The nginx runtime stage keeps the image usable standalone as well (SPA fallback + `/healthz` on port 8080, no reverse proxy), which is handy for static-only previews but is not the primary deploy target.
+
 ## Attribution
 
 Derived files (PF2e SCSS, `en.json` i18n) are Apache-2.0 licensed upstream. See [NOTICE](NOTICE) for specifics.
