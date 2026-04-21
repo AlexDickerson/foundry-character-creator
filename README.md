@@ -2,6 +2,14 @@
 
 React 19 SPA that renders a Pathfinder 2e character creator/viewer, consuming the [foundry-mcp](https://github.com/AlexDickerson/foundry-mcp) REST API. Renders post-`prepareData()` actor state using PF2e's styling conventions.
 
+## A message from the author on AI Usage
+
+These projects are intended as resources for the Pathfinder community to use as they desire. They are free and open source and will remain so forever.
+
+These projects are made with extensive use of AI coding agents; I know this is a contentious issue among the community, for a number of valid reasons. I can say that these have been built with reasonable diligence and care, but I understand this will not assuage the concerns of many.
+
+For those that find any AI unacceptable (and honestly, for anyone), I would encourage you to use and, importantly, support [Pathbuilder 2e](https://pathbuilder.app), an entirely handmade tool that continues to be an incredible pillar of the community.
+
 ## Architecture
 
 ```
@@ -61,7 +69,3 @@ Derived files (PF2e SCSS, `en.json` i18n) are Apache-2.0 licensed upstream. See 
 
 - [foundry-mcp](https://github.com/AlexDickerson/foundry-mcp) — server providing the REST API this SPA consumes
 - [foundry-api-bridge](https://github.com/AlexDickerson/foundry-api-bridge) — Foundry module that feeds the server
-
-## A message from the author
-
-These projects are intended as resources for the Pathfinder community to use as they desire. They are free and open source and will remain so forever. These projects are made with extensive use of AI coding agents; I know this is a contentious issue among the community, for a number of valid reasons. I can say that these have been built with reasonable diligence and care, but I understand this will not assuage the concerns of many. For those that find any AI unacceptable (and frankly, everyone), I would encourage you to use and, importantly, support [Pathbuilder 2e](https://pathbuilder.app), an entirely handmade tool that continues to be an incredible pillar of the community.
