@@ -116,6 +116,11 @@ export interface CompendiumMatch {
    *  Absent for ancestry-specific heritages and for non-heritage items.
    *  The picker uses this to render a "Versatile Heritages" section. */
   isVersatile?: boolean;
+  /** Present only when the search was served from foundry-mcp's
+   *  compendium document cache. Lets the shop UI render per-tile
+   *  prices without issuing a follow-up get-compendium-document call
+   *  per result. Absent for uncached packs. */
+  price?: ItemPrice;
 }
 
 export interface CompendiumPack {
@@ -463,6 +468,8 @@ export interface StrikeItemSource {
     damage?: { dice: number; die: string; damageType: string };
     range?: number | null;
     traits?: { value: string[]; rarity: string };
+    runes?: { potency: number; striking: number; property: string[] };
+    bonusDamage?: { value: number };
   };
 }
 
@@ -482,6 +489,7 @@ export interface Strike {
   weaponTraits: StrikeTrait[];
   variants: StrikeVariant[];
   canAttack: boolean;
+  domains?: string[];
 }
 
 // ─── Feats (Feats tab) ─────────────────────────────────────────────────
@@ -634,7 +642,22 @@ export interface PhysicalItemSystem {
   [key: string]: unknown;
 }
 
-export type PhysicalItemType = 'weapon' | 'armor' | 'equipment' | 'consumable' | 'treasure' | 'backpack';
+// Full set of physical item types in the pf2e system. Sourced from
+// pf2e's `src/module/item/physical/values.ts` (PHYSICAL_ITEM_TYPES).
+// `ammo`, `shield`, and `book` are distinct top-level types in pf2e
+// (not subtypes of consumable/armor/equipment), so they need to be
+// listed here or they're silently filtered out of the Inventory tab
+// and the Buy/Sell flows.
+export type PhysicalItemType =
+  | 'weapon'
+  | 'armor'
+  | 'shield'
+  | 'equipment'
+  | 'consumable'
+  | 'ammo'
+  | 'treasure'
+  | 'backpack'
+  | 'book';
 
 export interface PhysicalItem {
   id: string;
@@ -647,10 +670,13 @@ export interface PhysicalItem {
 const PHYSICAL_ITEM_TYPES: readonly PhysicalItemType[] = [
   'weapon',
   'armor',
+  'shield',
   'equipment',
   'consumable',
+  'ammo',
   'treasure',
   'backpack',
+  'book',
 ];
 
 export function isPhysicalItem(item: PreparedActorItem): item is PhysicalItem {
